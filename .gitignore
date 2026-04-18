@@ -1,0 +1,22 @@
+# Build outputs
+/dist/
+
+# Local test/install leftovers
+/.install-root/
+/.tmp/
+
+# macOS / editor cruft
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo
+
+# Python cache (if helper scripts get added later)
+__pycache__/
+*.pyc
+
+# Environment / secrets
+.env
+.env.*
+
