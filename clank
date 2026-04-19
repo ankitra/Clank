@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-DEFAULT_REPO_DIR="./"
+DEFAULT_REPO_DIR=`pwd`
 REPO_DIR="${CLAUDE_SANDBOX_REPO:-$DEFAULT_REPO_DIR}"
 IMAGE_NAME="${CLAUDE_DOCKER_IMAGE:-claude-code-local:latest}"
 DOCKERFILE_PATH="$SCRIPT_DIR/Dockerfile"
@@ -152,12 +152,14 @@ else
   echo "Auth source: container-local Claude config/auth"
 fi
 echo "Container will be removed when Claude exits."
+echo "Using $REPO_DIR for calude workspace"
 
 if [[ $CLAUDE_ARGS_COUNT -gt 0 ]]; then
   docker run --rm -it \
     --name "$CONTAINER_NAME" \
-    -v "$REPO_DIR:/workspace" \
-    -w /workspace \
+    -v "$REPO_DIR:/home/claude/workspace" \
+    -v "$REPO_DIR/.claude:/home/claude/.claude" \
+    -w /home/claude/workspace \
     "${DOCKER_ENV_ARGS[@]}" \
     "$IMAGE_NAME" \
     bash -lc '
@@ -171,14 +173,15 @@ if [[ $CLAUDE_ARGS_COUNT -gt 0 ]]; then
       unset GIT_ASKPASS
       unset SSH_ASKPASS
 
-      echo "Claude Code starting in /workspace"
+      echo "Claude Code starting in ~/workspace"
       exec claude "$@"
     ' bash "${CLAUDE_ARGS[@]}"
 else
   docker run --rm -it \
     --name "$CONTAINER_NAME" \
-    -v "$REPO_DIR:/workspace" \
-    -w /workspace \
+    -v "$REPO_DIR:/home/claude/workspace" \
+    -v "$REPO_DIR/.claude:/home/claude/.claude" \
+    -w /home/claude/workspace \
     "${DOCKER_ENV_ARGS[@]}" \
     "$IMAGE_NAME" \
     bash -lc '
@@ -192,7 +195,7 @@ else
       unset GIT_ASKPASS
       unset SSH_ASKPASS
 
-      echo "Claude Code starting in /workspace"
+      echo "Claude Code starting in ~/workspace"
       exec claude
     '
 fi
