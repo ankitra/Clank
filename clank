@@ -127,7 +127,6 @@ if [[ "$REBUILD" -eq 1 ]] || ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&
 fi
 
 DOCKER_ENV_ARGS=(
-  -e HOME=/tmp/claude-home
   -e GIT_TERMINAL_PROMPT=0
   -e GIT_CONFIG_GLOBAL=/dev/null
 )
