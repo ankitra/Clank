@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-DEFAULT_REPO_DIR="$HOME/claude-sandboxes/myproj"
+DEFAULT_REPO_DIR="./"
 REPO_DIR="${CLAUDE_SANDBOX_REPO:-$DEFAULT_REPO_DIR}"
 IMAGE_NAME="${CLAUDE_DOCKER_IMAGE:-claude-code-local:latest}"
 DOCKERFILE_PATH="$SCRIPT_DIR/Dockerfile"
