@@ -1,32 +1,45 @@
 #!/usr/bin/env bash
+# clank - Run Claude Code inside a disposable Docker container against a local sandbox clone
+#
+# Usage: clank [--repo PATH] [--rebuild] [--image NAME] [--] [claude args...]
+#        clank /path/to/repo [claude args...]
+#
+# This script provides a secure way to run Claude Code in a Docker container with:
+# - A disposable workspace mounted from a local repository clone
+# - No GitHub credentials made available inside the container
+# - Automatic cleanup when Claude exits
+# - Optional image rebuilding and customization
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
 
-DEFAULT_REPO_DIR=`pwd`
+# Default values
+DEFAULT_REPO_DIR="$(pwd)"
 REPO_DIR="${CLAUDE_SANDBOX_REPO:-$DEFAULT_REPO_DIR}"
 IMAGE_NAME="${CLAUDE_DOCKER_IMAGE:-claude-code-local:latest}"
 DOCKERFILE_PATH="$SCRIPT_DIR/Dockerfile"
 BUILD_CONTEXT="$SCRIPT_DIR"
 
-get_version() {
-  if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
-    tr -d '\r\n' < "$SCRIPT_DIR/VERSION"
-  else
-    echo "unknown"
-  fi
-}
+# Flags and arguments
+REBUILD=0
+POSITIONAL=()
+POSITIONAL_COUNT=0
+CLAUDE_ARGS=()
+CLAUDE_ARGS_COUNT=0
 
+# Function to display usage information
 usage() {
   cat <<USAGE
 Usage:
-  $(basename "$0") [--repo PATH] [--rebuild] [--image NAME] [--] [claude args...]
-  $(basename "$0") /path/to/repo [claude args...]
+  $SCRIPT_NAME [--repo PATH] [--rebuild] [--image NAME] [--] [claude args...]
+  $SCRIPT_NAME /path/to/repo [claude args...]
 
 Examples:
-  $(basename "$0") --repo ~/claude-sandboxes/myproj
-  $(basename "$0") --repo ~/claude-sandboxes/myproj -- --model sonnet
-  $(basename "$0") ~/claude-sandboxes/myproj --print "summarize this repo"
+  $SCRIPT_NAME --repo ~/claude-sandboxes/myproj
+  $SCRIPT_NAME --repo ~/claude-sandboxes/myproj -- --model sonnet
+  $SCRIPT_NAME ~/claude-sandboxes/myproj --print "summarize this repo"
 
 Notes:
   - If the first positional argument looks like a git repo, it is used as the repo path.
@@ -36,165 +49,212 @@ Notes:
 USAGE
 }
 
-REBUILD=0
-POSITIONAL=()
-POSITIONAL_COUNT=0
-CLAUDE_ARGS=()
-CLAUDE_ARGS_COUNT=0
+# Function to get version from VERSION file
+get_version() {
+  if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
+    tr -d '\r\n' < "$SCRIPT_DIR/VERSION"
+  else
+    echo "unknown"
+  fi
+}
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --repo)
-      [[ $# -ge 2 ]] || { echo "--repo requires a path" >&2; exit 1; }
-      REPO_DIR="$2"
-      shift 2
-      ;;
-    --image)
-      [[ $# -ge 2 ]] || { echo "--image requires a value" >&2; exit 1; }
-      IMAGE_NAME="$2"
-      shift 2
-      ;;
-    --rebuild)
-      REBUILD=1
-      shift
-      ;;
-    --version|-V)
-      get_version
-      exit 0
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    --)
-      shift
-      while [[ $# -gt 0 ]]; do
+# Function to parse command line arguments
+parse_arguments() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo)
+        [[ $# -ge 2 ]] || { echo "--repo requires a path" >&2; exit 1; }
+        REPO_DIR="$2"
+        shift 2
+        ;;
+      --image)
+        [[ $# -ge 2 ]] || { echo "--image requires a value" >&2; exit 1; }
+        IMAGE_NAME="$2"
+        # Validate IMAGE_NAME is not empty
+        if [[ -z "$IMAGE_NAME" ]]; then
+          echo "Error: IMAGE_NAME cannot be empty" >&2
+          exit 1
+        fi
+        shift 2
+        ;;
+      --rebuild)
+        REBUILD=1
+        shift
+        ;;
+      --version|-V)
+        get_version
+        exit 0
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      --)
+        shift
+        while [[ $# -gt 0 ]]; do
+          POSITIONAL+=("$1")
+          POSITIONAL_COUNT=$((POSITIONAL_COUNT + 1))
+          shift
+        done
+        break
+        ;;
+      *)
         POSITIONAL+=("$1")
         POSITIONAL_COUNT=$((POSITIONAL_COUNT + 1))
         shift
-      done
-      break
-      ;;
-    *)
-      POSITIONAL+=("$1")
-      POSITIONAL_COUNT=$((POSITIONAL_COUNT + 1))
-      shift
-      ;;
-  esac
-done
+        ;;
+    esac
+  done
 
-if [[ $POSITIONAL_COUNT -gt 0 && -d "${POSITIONAL[0]}" && -d "${POSITIONAL[0]}/.git" ]]; then
-  REPO_DIR="${POSITIONAL[0]}"
-  if [[ $POSITIONAL_COUNT -gt 1 ]]; then
-    CLAUDE_ARGS=("${POSITIONAL[@]:1}")
-    CLAUDE_ARGS_COUNT=$((POSITIONAL_COUNT - 1))
+  # Handle positional repo argument (if it looks like a git repo)
+  if [[ $POSITIONAL_COUNT -gt 0 && -d "${POSITIONAL[0]}" && -d "${POSITIONAL[0]}/.git" ]]; then
+    REPO_DIR="${POSITIONAL[0]}"
+    if [[ $POSITIONAL_COUNT -gt 1 ]]; then
+      CLAUDE_ARGS=("${POSITIONAL[@]:1}")
+      CLAUDE_ARGS_COUNT=$((POSITIONAL_COUNT - 1))
+    fi
+  elif [[ $POSITIONAL_COUNT -gt 0 ]]; then
+    CLAUDE_ARGS=("${POSITIONAL[@]}")
+    CLAUDE_ARGS_COUNT=$POSITIONAL_COUNT
   fi
-elif [[ $POSITIONAL_COUNT -gt 0 ]]; then
-  CLAUDE_ARGS=("${POSITIONAL[@]}")
-  CLAUDE_ARGS_COUNT=$POSITIONAL_COUNT
-fi
+}
 
-if [[ ! -d "$REPO_DIR" ]]; then
-  echo "Repo directory does not exist: $REPO_DIR" >&2
-  exit 1
-fi
+# Function to validate inputs
+validate_inputs() {
+  # Validate repo directory
+  if [[ ! -d "$REPO_DIR" ]]; then
+    echo "Repo directory does not exist: $REPO_DIR" >&2
+    exit 1
+  fi
 
-if [[ ! -d "$REPO_DIR/.git" ]]; then
-  echo "Not a git repository: $REPO_DIR" >&2
-  exit 1
-fi
+  if [[ ! -d "$REPO_DIR/.git" ]]; then
+    echo "Not a git repository: $REPO_DIR" >&2
+    exit 1
+  fi
 
-if [[ ! -f "$DOCKERFILE_PATH" ]]; then
-  echo "Dockerfile not found next to script: $DOCKERFILE_PATH" >&2
-  exit 1
-fi
+  # Validate Dockerfile exists
+  if [[ ! -f "$DOCKERFILE_PATH" ]]; then
+    echo "Dockerfile not found next to script: $DOCKERFILE_PATH" >&2
+    exit 1
+  fi
 
-if ! command -v docker >/dev/null 2>&1; then
-  echo "Docker CLI not found in PATH." >&2
-  echo "Install Docker Desktop or a compatible Docker CLI/runtime setup such as Colima + docker CLI." >&2
-  exit 1
-fi
+  # Validate Docker availability
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "Docker CLI not found in PATH." >&2
+    echo "Install Docker Desktop or a compatible Docker CLI/runtime setup such as Colima + docker CLI." >&2
+    exit 1
+  fi
 
-if ! docker info >/dev/null 2>&1; then
-  echo "Docker is installed, but the daemon/runtime is not reachable." >&2
-  echo "If you use Colima, try: colima start" >&2
-  exit 1
-fi
+  if ! docker info >/dev/null 2>&1; then
+    echo "Docker is installed, but the daemon/runtime is not reachable." >&2
+    echo "If you use Colima, try: colima start" >&2
+    exit 1
+  fi
+}
 
-if [[ "$REBUILD" -eq 1 ]] || ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
-  echo "Building Docker image: $IMAGE_NAME"
-  docker build -t "$IMAGE_NAME" -f "$DOCKERFILE_PATH" "$BUILD_CONTEXT"
-fi
+# Function to check dependencies and build image if needed
+check_and_build_image() {
+  if [[ "$REBUILD" -eq 1 ]] || ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
+    echo "Building Docker image: $IMAGE_NAME"
+    docker build -t "$IMAGE_NAME" -f "$DOCKERFILE_PATH" "$BUILD_CONTEXT"
+  fi
+}
 
-DOCKER_ENV_ARGS=(
-  -e GIT_TERMINAL_PROMPT=0
-  -e GIT_CONFIG_GLOBAL=/dev/null
-)
+# Function to run the Claude container
+run_container() {
+  # Set up Docker environment arguments
+  local DOCKER_ENV_ARGS=(
+    -e GIT_TERMINAL_PROMPT=0
+    -e GIT_CONFIG_GLOBAL=/dev/null
+  )
 
-if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
-  DOCKER_ENV_ARGS+=(-e "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
-fi
+  # Pass through ANTHROPIC_API_KEY if set
+  if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+    DOCKER_ENV_ARGS+=(-e "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
+  fi
 
-CONTAINER_NAME="claude-code-$(basename "$REPO_DIR" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-_')"
+  # Generate container name from repo directory (sanitized)
+  local CONTAINER_NAME="claude-code-$(basename "$REPO_DIR" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-_')"
 
-echo "Starting Claude Code in Docker..."
-echo "Toolkit dir: $SCRIPT_DIR"
-echo "Mounted repo: $REPO_DIR"
-echo "Version: $(get_version)"
-echo "Docker image: $IMAGE_NAME"
-if [[ $CLAUDE_ARGS_COUNT -gt 0 ]]; then
-  echo "Passing Claude args: ${CLAUDE_ARGS[*]}"
-fi
-if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
-  echo "Auth source: host ANTHROPIC_API_KEY"
-else
-  echo "Auth source: container-local Claude config/auth"
-fi
-echo "Container will be removed when Claude exits."
-echo "Using $REPO_DIR for calude workspace"
+  # Fallback if sanitization results in empty string
+  if [[ -z "$CONTAINER_NAME" ]]; then
+    CONTAINER_NAME="claude-code-container"
+  fi
 
-if [[ $CLAUDE_ARGS_COUNT -gt 0 ]]; then
-  docker run --rm -it \
-    --name "$CONTAINER_NAME" \
-    -v "$REPO_DIR:/home/claude/workspace" \
-    -v "$REPO_DIR/.claude:/home/claude/.claude" \
-    -w /home/claude/workspace \
-    "${DOCKER_ENV_ARGS[@]}" \
-    "$IMAGE_NAME" \
-    bash -lc '
-      set -euo pipefail
+  echo "Starting Claude Code in Docker..."
+  echo "Toolkit dir: $SCRIPT_DIR"
+  echo "Mounted repo: $REPO_DIR"
+  echo "Version: $(get_version)"
+  echo "Docker image: $IMAGE_NAME"
 
-      mkdir -p "$HOME"
+  if [[ $CLAUDE_ARGS_COUNT -gt 0 ]]; then
+    echo "Passing Claude args: ${CLAUDE_ARGS[*]}"
+  fi
 
-      unset SSH_AUTH_SOCK
-      unset GH_TOKEN
-      unset GITHUB_TOKEN
-      unset GIT_ASKPASS
-      unset SSH_ASKPASS
+  if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+    echo "Auth source: host ANTHROPIC_API_KEY"
+  else
+    echo "Auth source: container-local Claude config/auth"
+  fi
 
-      echo "Claude Code starting in ~/workspace"
-      exec claude "$@"
-    ' bash "${CLAUDE_ARGS[@]}"
-else
-  docker run --rm -it \
-    --name "$CONTAINER_NAME" \
-    -v "$REPO_DIR:/home/claude/workspace" \
-    -v "$REPO_DIR/.claude:/home/claude/.claude" \
-    -w /home/claude/workspace \
-    "${DOCKER_ENV_ARGS[@]}" \
-    "$IMAGE_NAME" \
-    bash -lc '
-      set -euo pipefail
+  echo "Container will be removed when Claude exits."
+  echo "Using $REPO_DIR for Claude workspace"
 
-      mkdir -p "$HOME"
+  # Run the container with appropriate volume mounts and settings
+  if [[ $CLAUDE_ARGS_COUNT -gt 0 ]]; then
+    docker run --rm -it \
+      --name "$CONTAINER_NAME" \
+      -v "$REPO_DIR:/home/claude/workspace" \
+      -v "$REPO_DIR/.claude:/home/claude/.claude" \
+      -w /home/claude/workspace \
+      "${DOCKER_ENV_ARGS[@]}" \
+      "$IMAGE_NAME" \
+      bash -lc '
+        set -euo pipefail
 
-      unset SSH_AUTH_SOCK
-      unset GH_TOKEN
-      unset GITHUB_TOKEN
-      unset GIT_ASKPASS
-      unset SSH_ASKPASS
+        mkdir -p "$HOME"
 
-      echo "Claude Code starting in ~/workspace"
-      exec claude
-    '
-fi
+        unset SSH_AUTH_SOCK
+        unset GH_TOKEN
+        unset GITHUB_TOKEN
+        unset GIT_ASKPASS
+        unset SSH_ASKPASS
+
+        echo "Claude Code starting in ~/workspace"
+        exec claude "$@"
+      ' bash "${CLAUDE_ARGS[@]}"
+  else
+    docker run --rm -it \
+      --name "$CONTAINER_NAME" \
+      -v "$REPO_DIR:/home/claude/workspace" \
+      -v "$REPO_DIR/.claude:/home/claude/.claude" \
+      -w /home/claude/workspace \
+      "${DOCKER_ENV_ARGS[@]}" \
+      "$IMAGE_NAME" \
+      bash -lc '
+        set -euo pipefail
+
+        mkdir -p "$HOME"
+
+        unset SSH_AUTH_SOCK
+        unset GH_TOKEN
+        unset GITHUB_TOKEN
+        unset GIT_ASKPASS
+        unset SSH_ASKPASS
+
+        echo "Claude Code starting in ~/workspace"
+        exec claude
+      '
+  fi
+}
+
+# Main execution flow
+main() {
+  parse_arguments "$@"
+  validate_inputs
+  check_and_build_image
+  run_container
+}
+
+# Execute main function with all script arguments
+main "$@"

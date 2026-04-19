@@ -31,6 +31,26 @@ while [[ $# -gt 0 ]]; do
     --prefix)
       [[ $# -ge 2 ]] || { echo "--prefix requires a path" >&2; exit 1; }
       PREFIX="$2"
+      # Validate prefix is an absolute path without dangerous elements
+      case "$PREFIX" in
+        /*)
+          # Check for directory traversal attempts
+          if [[ "$PREFIX" == *"/.."* ]] || [[ "$PREFIX" == *"../"* ]]; then
+            die "Prefix must not contain directory traversal sequences (..)"
+          fi
+          # Check for leading dash (could be interpreted as option)
+          if [[ "$PREFIX" == -* ]]; then
+            die "Prefix must not start with a dash (-)"
+          fi
+          # Check for empty path after removing leading slash
+          if [[ -z "${PREFIX#/}" ]]; then
+            die "Prefix must not be just a slash"
+          fi
+          ;;
+        *)
+          die "Prefix must be an absolute path starting with /"
+          ;;
+      esac
       shift 2
       ;;
     --force)
@@ -100,8 +120,13 @@ else
   say "- colima not found (this is fine if you use Docker Desktop or another compatible runtime)"
 fi
 
+# Verify required files exist and are regular files (not symlinks) within script directory
 for f in Dockerfile clank README.md .dockerignore Makefile VERSION; do
   [[ -f "$SCRIPT_DIR/$f" ]] || die "Required file missing next to installer: $f"
+  # Additional security check: ensure file is not a symlink pointing outside script directory
+  if [[ -L "$SCRIPT_DIR/$f" ]]; then
+    die "Required file is a symlink, which is not allowed for security reasons: $f"
+  fi
 done
 
 if [[ "$CHECK_ONLY" -eq 1 ]]; then
@@ -126,11 +151,8 @@ install -m 0644 "$SCRIPT_DIR/Makefile" "$SHARE_DIR/Makefile"
 install -m 0644 "$SCRIPT_DIR/VERSION" "$SHARE_DIR/VERSION"
 install -m 0755 "$SCRIPT_DIR/clank" "$SHARE_DIR/clank"
 
-cat > "$TARGET" <<EOF_WRAPPER
-#!/usr/bin/env bash
-set -euo pipefail
-exec "$SHARE_DIR/clank" "\$@"
-EOF_WRAPPER
+# Create wrapper script using printf to prevent command injection
+printf '#!/usr/bin/env bash\nset -euo pipefail\nexec "%s/clank" "$@"\n' "$SHARE_DIR" > "$TARGET"
 chmod 0755 "$TARGET"
 
 say ""
