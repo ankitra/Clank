@@ -38,6 +38,9 @@ USAGE
 
 REBUILD=0
 POSITIONAL=()
+POSITIONAL_COUNT=0
+CLAUDE_ARGS=()
+CLAUDE_ARGS_COUNT=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -65,22 +68,31 @@ while [[ $# -gt 0 ]]; do
       ;;
     --)
       shift
-      POSITIONAL+=("$@")
+      while [[ $# -gt 0 ]]; do
+        POSITIONAL+=("$1")
+        POSITIONAL_COUNT=$((POSITIONAL_COUNT + 1))
+        shift
+      done
       break
       ;;
     *)
       POSITIONAL+=("$1")
+      POSITIONAL_COUNT=$((POSITIONAL_COUNT + 1))
       shift
       ;;
   esac
 done
 
-if [[ ${#POSITIONAL[@]} -gt 0 && -d "${POSITIONAL[0]}" && -d "${POSITIONAL[0]}/.git" ]]; then
+if [[ $POSITIONAL_COUNT -gt 0 && -d "${POSITIONAL[0]}" && -d "${POSITIONAL[0]}/.git" ]]; then
   REPO_DIR="${POSITIONAL[0]}"
-  POSITIONAL=("${POSITIONAL[@]:1}")
+  if [[ $POSITIONAL_COUNT -gt 1 ]]; then
+    CLAUDE_ARGS=("${POSITIONAL[@]:1}")
+    CLAUDE_ARGS_COUNT=$((POSITIONAL_COUNT - 1))
+  fi
+elif [[ $POSITIONAL_COUNT -gt 0 ]]; then
+  CLAUDE_ARGS=("${POSITIONAL[@]}")
+  CLAUDE_ARGS_COUNT=$POSITIONAL_COUNT
 fi
-
-CLAUDE_ARGS=("${POSITIONAL[@]}")
 
 if [[ ! -d "$REPO_DIR" ]]; then
   echo "Repo directory does not exist: $REPO_DIR" >&2
@@ -131,7 +143,7 @@ echo "Toolkit dir: $SCRIPT_DIR"
 echo "Mounted repo: $REPO_DIR"
 echo "Version: $(get_version)"
 echo "Docker image: $IMAGE_NAME"
-if [[ ${#CLAUDE_ARGS[@]} -gt 0 ]]; then
+if [[ $CLAUDE_ARGS_COUNT -gt 0 ]]; then
   echo "Passing Claude args: ${CLAUDE_ARGS[*]}"
 fi
 if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
@@ -141,23 +153,46 @@ else
 fi
 echo "Container will be removed when Claude exits."
 
-docker run --rm -it \
-  --name "$CONTAINER_NAME" \
-  -v "$REPO_DIR:/workspace" \
-  -w /workspace \
-  "${DOCKER_ENV_ARGS[@]}" \
-  "$IMAGE_NAME" \
-  bash -lc '
-    set -euo pipefail
+if [[ $CLAUDE_ARGS_COUNT -gt 0 ]]; then
+  docker run --rm -it \
+    --name "$CONTAINER_NAME" \
+    -v "$REPO_DIR:/workspace" \
+    -w /workspace \
+    "${DOCKER_ENV_ARGS[@]}" \
+    "$IMAGE_NAME" \
+    bash -lc '
+      set -euo pipefail
 
-    mkdir -p "$HOME"
+      mkdir -p "$HOME"
 
-    unset SSH_AUTH_SOCK
-    unset GH_TOKEN
-    unset GITHUB_TOKEN
-    unset GIT_ASKPASS
-    unset SSH_ASKPASS
+      unset SSH_AUTH_SOCK
+      unset GH_TOKEN
+      unset GITHUB_TOKEN
+      unset GIT_ASKPASS
+      unset SSH_ASKPASS
 
-    echo "Claude Code starting in /workspace"
-    exec claude "$@"
-  ' bash "${CLAUDE_ARGS[@]}"
+      echo "Claude Code starting in /workspace"
+      exec claude "$@"
+    ' bash "${CLAUDE_ARGS[@]}"
+else
+  docker run --rm -it \
+    --name "$CONTAINER_NAME" \
+    -v "$REPO_DIR:/workspace" \
+    -w /workspace \
+    "${DOCKER_ENV_ARGS[@]}" \
+    "$IMAGE_NAME" \
+    bash -lc '
+      set -euo pipefail
+
+      mkdir -p "$HOME"
+
+      unset SSH_AUTH_SOCK
+      unset GH_TOKEN
+      unset GITHUB_TOKEN
+      unset GIT_ASKPASS
+      unset SSH_ASKPASS
+
+      echo "Claude Code starting in /workspace"
+      exec claude
+    '
+fi
