@@ -41,6 +41,9 @@ Examples:
   $SCRIPT_NAME --repo ~/claude-sandboxes/myproj -- --model sonnet
   $SCRIPT_NAME ~/claude-sandboxes/myproj --print "summarize this repo"
 
+Infrastructure:
+  Proxy Web UI: http://localhost:8082 (Configure keys here)
+
 Notes:
   - If the first positional argument looks like a git repo, it is used as the repo path.
   - Everything else is forwarded to the 'claude' command inside the container.
@@ -160,17 +163,48 @@ check_and_build_image() {
   fi
 }
 
+# Proxy & Network Initialization
+init_infrastructure() {
+  # Create a dedicated network so containers can talk via names
+  if ! docker network inspect clank-net >/dev/null 2>&1; then
+    echo "🌐 Creating clank-net bridge..."
+    docker network create clank-net
+  fi
+
+  # Check if the zimplexing proxy is already running
+  if ! docker ps --format '{{.Names}}' | grep -q "^clank-proxy$"; then
+    echo "🚀 Starting Clank Proxy (zimplexing/claude-code-proxy-enhance)..."
+    docker run -d \
+      --name clank-proxy \
+      --network clank-net \
+      -p 8082:8082 \
+      -v "$HOME/.clank/proxy_config:/app/config" \
+      --restart unless-stopped \
+      zimpel1/claude-code-proxy-enhance:latest
+    
+    echo "✨ Proxy is up! Access Web UI at: http://localhost:8082 to configure Gemini/OpenAI keys."
+    # Optional: give the proxy a second to initialize its internal API
+    sleep 2
+  fi
+}
+
 # Function to run the Claude container
 run_container() {
+  init_infrastructure  
+
   # Set up Docker environment arguments
   local DOCKER_ENV_ARGS=(
     -e GIT_TERMINAL_PROMPT=0
     -e GIT_CONFIG_GLOBAL=/dev/null
+    # Redirect Claude to the proxy container by name
+    -e ANTHROPIC_BASE_URL=http://clank-proxy:8082
   )
 
   # Pass through ANTHROPIC_API_KEY if set
   if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
-    DOCKER_ENV_ARGS+=(-e "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
+      DOCKER_ENV_ARGS+=(-e "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
+  else
+      DOCKER_ENV_ARGS+=(-e "ANTHROPIC_API_KEY=sk-ant-clank-dummy")      
   fi
 
   # Generate container name from repo directory (sanitized)
@@ -204,6 +238,7 @@ run_container() {
   if [[ $CLAUDE_ARGS_COUNT -gt 0 ]]; then
     docker run --rm -it \
       --name "$CONTAINER_NAME" \
+      --network clank-net \
       -v "$REPO_DIR:/home/claude/workspace" \
       -v "$REPO_DIR/.claude:/home/claude/.claude" \
       -w /home/claude/workspace \
@@ -226,6 +261,7 @@ run_container() {
   else
     docker run --rm -it \
       --name "$CONTAINER_NAME" \
+      --network clank-net \
       -v "$REPO_DIR:/home/claude/workspace" \
       -v "$REPO_DIR/.claude:/home/claude/.claude" \
       -w /home/claude/workspace \

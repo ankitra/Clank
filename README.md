@@ -1,4 +1,4 @@
-# Clank
+# Clank 🤖
 
 Run Claude Code inside a disposable Docker container against a local sandbox clone of your repository.
 
@@ -9,6 +9,21 @@ Run Claude Code inside a disposable Docker container against a local sandbox clo
 - Your GitHub credentials are **not** made available inside the container.
 - The Docker container stops and is removed when Claude exits.
 
+## Features
+- **Multi-Model Support**: Use Gemini 2.0, GPT-4o, or local models inside Claude Code.
+- **Zero-Config Infrastructure**: Automatically manages a proxy sidecar and Docker networking.
+- **Project Isolation**: Mounts individual repos as sandboxes; Claude's "memory" is isolated to that folder's `.claude` directory.
+
+## Quick Start
+
+1. **Clone and Run**:
+   ```bash
+   git clone [https://github.com/ankitra/Clank.git](https://github.com/ankitra/Clank.git)
+   cd Clank
+   chmod u+x install.sh
+   ./install.sh
+   clank --repo ~/path/to/your-project
+   
 ## What gets installed
 
 - `clank` launcher in `~/.local/bin` by default
