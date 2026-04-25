@@ -22,6 +22,11 @@ IMAGE_NAME="${CLAUDE_DOCKER_IMAGE:-claude-code-local:latest}"
 DOCKERFILE_PATH="$SCRIPT_DIR/Dockerfile"
 BUILD_CONTEXT="$SCRIPT_DIR"
 
+# Proxy Variables
+PROXY_COMMIT="${CLANK_PROXY_COMMIT:-d3befb748b7d392871e807cd54f6f168ad6e49fb}"
+PROXY_IMAGE="${CLANK_PROXY_IMAGE:-clank/claude-code-proxy-enhance:$PROXY_COMMIT}"
+PROXY_CONTEXT="https://github.com/zimplexing/claude-code-proxy-enhance.git#$PROXY_COMMIT"
+
 # Flags and arguments
 REBUILD=0
 POSITIONAL=()
@@ -157,34 +162,62 @@ validate_inputs() {
 
 # Function to check dependencies and build image if needed
 check_and_build_image() {
+
+  echo "🔍 Checking Docker images..."
+
+  if [[ "$REBUILD" -eq 1 ]] || ! docker image inspect "$PROXY_IMAGE" >/dev/null 2>&1; then
+    echo "Building Clank proxy image: $PROXY_IMAGE"
+    echo "🔒 Using proxy commit: $PROXY_COMMIT"
+    docker build \
+      -t "$PROXY_IMAGE" \
+      --build-arg PROXY_COMMIT="$PROXY_COMMIT" \
+      -f proxy/claude-code-proxy-enhance.Dockerfile \
+      .    
+    echo "✅ Claude proxy image ready"
+  else
+    echo "⚡ Claude proxy image already exists — skipping build"
+  fi
+
   if [[ "$REBUILD" -eq 1 ]] || ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
     echo "Building Docker image: $IMAGE_NAME"
     docker build -t "$IMAGE_NAME" -f "$DOCKERFILE_PATH" "$BUILD_CONTEXT"
+    echo "✅ Clank core image ready"
+  else
+    echo "⚡ Clank core image already exists — skipping build"
   fi
+
+  echo "🚀 All images are ready to go"
 }
 
 # Proxy & Network Initialization
 init_infrastructure() {
   # Create a dedicated network so containers can talk via names
   if ! docker network inspect clank-net >/dev/null 2>&1; then
-    echo "🌐 Creating clank-net bridge..."
+    echo "🌉 Creating clank-net bridge..."
     docker network create clank-net
+  else
+    echo "✅ Docker network clank-net already exists"
   fi
 
-  # Check if the zimplexing proxy is already running
+  # Check if the proxy is already running
   if ! docker ps --format '{{.Names}}' | grep -q "^clank-proxy$"; then
-    echo "🚀 Starting Clank Proxy (zimplexing/claude-code-proxy-enhance)..."
+    echo "🔌 Starting Clank Proxy sidecar..."
+    echo "🧩 Proxy image: $PROXY_IMAGE"
+
     docker run -d \
       --name clank-proxy \
       --network clank-net \
       -p 8082:8082 \
       -v "$HOME/.clank/proxy_config:/app/config" \
       --restart unless-stopped \
-      zimpel1/claude-code-proxy-enhance:latest
-    
-    echo "✨ Proxy is up! Access Web UI at: http://localhost:8082 to configure Gemini/OpenAI keys."
-    # Optional: give the proxy a second to initialize its internal API
+      "$PROXY_IMAGE"
+
+    echo "✨ Proxy is up! Web UI: http://localhost:8082"
+    echo "🔑 Configure Gemini/OpenAI keys there."
+
     sleep 2
+  else
+    echo "✅ Clank Proxy is already running"
   fi
 }
 

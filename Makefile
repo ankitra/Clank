@@ -6,7 +6,7 @@ DIST_DIR := dist
 VERSION_FILE := VERSION
 VERSION ?= $(shell cat $(VERSION_FILE) 2>/dev/null || echo 0.0.0-dev)
 ARCHIVE_BASENAME := $(PKG_DIR)-$(VERSION)
-PACKAGE_FILES := Dockerfile README.md install.sh clank .dockerignore Makefile VERSION
+PACKAGE_FILES := Dockerfile README.md install.sh clank .dockerignore Makefile VERSION proxy/claude-code-proxy-enhance.Dockerfile
 
 .PHONY: help package zip tar clean check install version set-version
 

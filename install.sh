@@ -121,7 +121,7 @@ else
 fi
 
 # Verify required files exist and are regular files (not symlinks) within script directory
-for f in Dockerfile clank README.md .dockerignore Makefile VERSION; do
+for f in Dockerfile clank README.md .dockerignore Makefile VERSION proxy/claude-code-proxy-enhance.Dockerfile; do
   [[ -f "$SCRIPT_DIR/$f" ]] || die "Required file missing next to installer: $f"
   # Additional security check: ensure file is not a symlink pointing outside script directory
   if [[ -L "$SCRIPT_DIR/$f" ]]; then
@@ -138,7 +138,7 @@ BIN_DIR="$PREFIX/bin"
 SHARE_DIR="$PREFIX/share/$SHARE_NAME"
 TARGET="$BIN_DIR/$APP_NAME"
 
-mkdir -p "$BIN_DIR" "$SHARE_DIR"
+mkdir -p "$BIN_DIR" "$SHARE_DIR" "$SHARE_DIR/proxy"
 
 if [[ -e "$TARGET" && "$FORCE" -ne 1 ]]; then
   die "Target already exists: $TARGET (use --force to overwrite)"
@@ -150,6 +150,7 @@ install -m 0644 "$SCRIPT_DIR/README.md" "$SHARE_DIR/README.md"
 install -m 0644 "$SCRIPT_DIR/Makefile" "$SHARE_DIR/Makefile"
 install -m 0644 "$SCRIPT_DIR/VERSION" "$SHARE_DIR/VERSION"
 install -m 0755 "$SCRIPT_DIR/clank" "$SHARE_DIR/clank"
+install -m 0644 "$SCRIPT_DIR/proxy/claude-code-proxy-enhance.Dockerfile" "$SHARE_DIR/proxy/claude-code-proxy-enhance.Dockerfile"
 
 # Create wrapper script using printf to prevent command injection
 printf '#!/usr/bin/env bash\nset -euo pipefail\nexec "%s/clank" "$@"\n' "$SHARE_DIR" > "$TARGET"
