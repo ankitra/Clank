@@ -25,7 +25,7 @@ BUILD_CONTEXT="$SCRIPT_DIR"
 # Proxy Variables
 PROXY_COMMIT="${CLANK_PROXY_COMMIT:-d3befb748b7d392871e807cd54f6f168ad6e49fb}"
 PROXY_IMAGE="${CLANK_PROXY_IMAGE:-clank/claude-code-proxy-enhance:$PROXY_COMMIT}"
-PROXY_CONTEXT="https://github.com/zimplexing/claude-code-proxy-enhance.git#$PROXY_COMMIT"
+PROXY_CONTEXT="https://github.com/ankitra/claude-code-proxy-enhance.git#$PROXY_COMMIT"
 
 # Flags and arguments
 REBUILD=0
@@ -229,9 +229,16 @@ run_container() {
   local DOCKER_ENV_ARGS=(
     -e GIT_TERMINAL_PROMPT=0
     -e GIT_CONFIG_GLOBAL=/dev/null
-    # Redirect Claude to the proxy container by name
-    -e ANTHROPIC_BASE_URL=http://clank-proxy:8082
   )
+
+  if [[ -n "${ANTHROPIC_BASE_URL:-}" ]]; then
+      echo "🔒 Using base url from host : ${ANTHROPIC_BASE_URL}"
+      DOCKER_ENV_ARGS+=(-e "ANTHROPIC_BASE_URL=$ANTHROPIC_BASE_URL")
+  else
+    echo "🧩 Using base url of proxy"
+    # Redirect Claude to the proxy container by name
+    DOCKER_ENV_ARGS+=(-e ANTHROPIC_BASE_URL=http://clank-proxy:8082)
+  fi
 
   # Pass through ANTHROPIC_API_KEY if set
   if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
@@ -239,6 +246,18 @@ run_container() {
   else
       DOCKER_ENV_ARGS+=(-e "ANTHROPIC_API_KEY=sk-ant-clank-dummy")      
   fi
+
+    if [[ -n "${ANTHROPIC_DEFAULT_HAIKU_MODEL:-}" ]]; then
+      DOCKER_ENV_ARGS+=(-e "ANTHROPIC_DEFAULT_HAIKU_MODEL=$ANTHROPIC_DEFAULT_HAIKU_MODEL")
+    fi
+
+    if [[ -n "${ANTHROPIC_DEFAULT_HAIKU_MODEL:-}" ]]; then
+      DOCKER_ENV_ARGS+=(-e "ANTHROPIC_DEFAULT_OPUS_MODEL=$ANTHROPIC_DEFAULT_OPUS_MODEL")
+    fi
+
+    if [[ -n "${ANTHROPIC_DEFAULT_HAIKU_MODEL:-}" ]]; then
+      DOCKER_ENV_ARGS+=(-e "ANTHROPIC_DEFAULT_SONNET_MODEL=$ANTHROPIC_DEFAULT_SONNET_MODEL")
+    fi
 
   # Generate container name from repo directory (sanitized)
   local CONTAINER_NAME="claude-code-$(basename "$REPO_DIR" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-_')"
