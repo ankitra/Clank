@@ -23,7 +23,7 @@ DOCKERFILE_PATH="$SCRIPT_DIR/Dockerfile"
 BUILD_CONTEXT="$SCRIPT_DIR"
 
 # Proxy Variables
-PROXY_COMMIT="${CLANK_PROXY_COMMIT:-d3befb748b7d392871e807cd54f6f168ad6e49fb}"
+PROXY_COMMIT="${CLANK_PROXY_COMMIT:-13265a2a0ae7ce624b5b6683fb7a2203e6927d7c}"
 PROXY_IMAGE="${CLANK_PROXY_IMAGE:-clank/claude-code-proxy-enhance:$PROXY_COMMIT}"
 PROXY_CONTEXT="https://github.com/ankitra/claude-code-proxy-enhance.git#$PROXY_COMMIT"
 
