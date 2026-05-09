@@ -208,7 +208,7 @@ init_infrastructure() {
       --name clank-proxy \
       --network clank-net \
       -p 8082:8082 \
-      -v "$HOME/.clank/proxy_config:/app/config" \
+      -v "$HOME/.clank/proxy_config:/app/configs" \
       --restart unless-stopped \
       "$PROXY_IMAGE"
 
