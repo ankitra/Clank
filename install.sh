@@ -40,7 +40,7 @@ while [[ $# -gt 0 ]]; do
           fi
           # Check for leading dash (could be interpreted as option)
           if [[ "$PREFIX" == -* ]]; then
-            die "Prefix must not start with a dash (-)"
+            die "Prefix must not start with a dash (-)."
           fi
           # Check for empty path after removing leading slash
           if [[ -z "${PREFIX#/}" ]]; then

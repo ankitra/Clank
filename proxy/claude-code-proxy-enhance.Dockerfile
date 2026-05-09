@@ -1,6 +1,6 @@
 FROM ghcr.io/astral-sh/uv:bookworm-slim
 
-ARG PROXY_COMMIT=8a8b9eb758486c5aeca8f0d6f3a0fabaf3f6004d
+ARG PROXY_COMMIT=d19cb2cef89dca46fd2c43cc1408fec1bbeb331a
 
 RUN apt-get update && apt-get install -y \
     git \
